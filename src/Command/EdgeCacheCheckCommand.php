@@ -119,8 +119,9 @@ final class EdgeCacheCheckCommand extends Command
         }
         if (preg_match('/^[0-9a-f]{37}$/', $token)) {
             $hints[] = 'This looks like the Global API Key (37 hex characters), not an API token (40 characters).';
-        } elseif (strlen($token) !== 40) {
-            $hints[] = 'Cloudflare API tokens are 40 characters long; check it was copied whole.';
+        } elseif (!preg_match('/^(cf(ut|at)_[A-Za-z0-9]{48}|[A-Za-z0-9_-]{40})$/', $token)) {
+            $hints[] = 'This does not look like a Cloudflare API token (current: "cfut_" or "cfat_" and 48 more '
+                . 'characters; older: 40 characters); check it was copied whole.';
         }
         if (!preg_match('/^[0-9a-f]{32}$/', $zoneId)) {
             $hints[] = 'A zone ID is 32 hex characters (zone Overview page, right column).';
@@ -158,10 +159,10 @@ final class EdgeCacheCheckCommand extends Command
             $status === 401 && !$tokenVerified => 'The token itself is not accepted: wrong value, deleted or rolled '
                 . 'in the dashboard, or a Global API Key pasted as a token. Create a new one '
                 . '(My Profile > API Tokens) and replace it in config/.env.',
-            $status === 401 => 'The token is valid but not accepted for this call; '
-                . 'check its permission (Zone > Cache Purge).',
-            $status === 403 => 'The token is valid but may not purge this zone: '
-                . 'give it Zone > Cache Purge for this zone.',
+            $status === 401, $status === 403 => 'The token is valid, but Cloudflare will not let it purge this zone. '
+                . 'Check, in this order: (1) its permission is Zone > Cache Purge > Purge; (2) its Zone Resources '
+                . 'include this zone; (3) CLOUDFLARE_ZONE_ID is this domain\'s zone ID (zone Overview page, right '
+                . 'column), not the account ID or another domain\'s.',
             $status === 400 => 'Cloudflare rejected the request: the URL probably does not belong to the zone; '
                 . 'pass --url.',
             $status === 404 => 'The zone ID is wrong, or the token cannot see that zone.',
