@@ -110,6 +110,22 @@ final class EdgeCacheCheckCommandTest extends TestCase
 
         $this->assertExitError();
         $this->assertErrorContains('Zone > Cache Purge');
+        $this->assertErrorContains('Zone Resources');
+        $this->assertErrorContains('not the account ID');
+    }
+
+    public function testBothCurrentAndOlderTokenFormatsPassTheShapeCheck(): void
+    {
+        foreach (['cfut_' . str_repeat('A', 48), 'cfat_' . str_repeat('a1', 24), self::TOKEN] as $token) {
+            Configure::write('EdgeCache.purge', ['driver' => 'cloudflare', 'zoneId' => self::ZONE, 'token' => $token]);
+            $this->everythingWorks();
+
+            $this->exec('edge_cache check');
+
+            $this->assertExitSuccess();
+            $this->assertStringNotContainsString('does not look like', $this->_err->output());
+            $this->assertStringNotContainsString($token, $this->_out->output() . $this->_err->output());
+        }
     }
 
     public function testMissingCredentialsAreNamed(): void
