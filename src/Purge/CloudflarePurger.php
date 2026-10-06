@@ -14,21 +14,21 @@ final class CloudflarePurger implements PurgerInterface
     // The API takes at most 100 URLs per request.
     private const MAX_URLS = 100;
 
-    private Client $client;
+    private CloudflareApi $api;
 
     /**
      * @param string $zoneId The zone ID.
      * @param string $token The API token.
      * @param \Cake\Http\Client|null $client The HTTP client (a seam for tests).
      */
-    public function __construct(private string $zoneId, private string $token, ?Client $client = null)
+    public function __construct(private string $zoneId, string $token, ?Client $client = null)
     {
         if ($zoneId === '' || $token === '') {
             throw new RuntimeException(
                 'EdgeCache: the Cloudflare purge needs CLOUDFLARE_ZONE_ID and CLOUDFLARE_API_TOKEN.',
             );
         }
-        $this->client = $client ?? new Client();
+        $this->api = new CloudflareApi($token, $client);
     }
 
     /**
@@ -55,16 +55,13 @@ final class CloudflarePurger implements PurgerInterface
      */
     private function post(array $body): void
     {
-        $response = $this->client->post(
-            'https://api.cloudflare.com/client/v4/zones/' . rawurlencode($this->zoneId) . '/purge_cache',
-            (string)json_encode($body),
-            ['type' => 'json', 'headers' => ['Authorization' => 'Bearer ' . $this->token]],
-        );
-        $json = $response->getJson();
-        if (!$response->isOk() || empty($json['success'])) {
-            // Never put the token or the request in the message: it ends up in logs and the queue table.
+        $answer = $this->api->post('/zones/' . rawurlencode($this->zoneId) . '/purge_cache', $body);
+        if (!$answer['success']) {
+            // Cloudflare's own error text is safe to show; the token and the request never are (logs, queue table).
             throw new RuntimeException(
-                'EdgeCache: Cloudflare refused the purge (HTTP ' . $response->getStatusCode() . ').',
+                'EdgeCache: Cloudflare refused the purge (HTTP ' . $answer['status'] . ')'
+                . ($answer['errors'] !== '' ? ': ' . $answer['errors'] : '')
+                . '. Run `bin/cake edge_cache check` to find out why.',
             );
         }
     }

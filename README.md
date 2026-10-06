@@ -78,6 +78,19 @@ Run it from the deploy script and from a queued job (`Queue.Execute`). A refused
 and is retried. If a page change also needs other work first (the reference app rebuilds its Seo index), run both **in one job, in
 order**: two jobs can run in parallel, and a purge that wins the race lets Cloudflare re-cache the old page for a year.
 
+## Check the credentials
+
+```
+bin/cake edge_cache check [--url https://example.com/x]
+```
+
+Run it on the server after putting `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID` in `config/.env`. It looks for the usual typing
+mistakes (a quote, a space, a `Bearer ` prefix, a Global API Key pasted as a token, a zone ID of the wrong shape), asks Cloudflare
+whether the token is valid, and then purges **one URL that does not exist** (`<App.fullBaseUrl>/__edge_cache_check`): harmless, and
+it succeeds only if the token may purge this zone. Exit code 0 means purging works. The token is never printed. A refused purge
+(HTTP 401 in the deploy) is explained: wrong or rolled token, no Cache Purge permission on this zone, a zone ID from another
+account, a URL outside the zone (pass `--url`).
+
 ## One-time Cloudflare setup
 
 Cloudflare does not cache HTML unless a Cache Rule makes it eligible. Add one for the site, scoped to pages (the app decides what
