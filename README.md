@@ -78,6 +78,32 @@ Run it from the deploy script and from a queued job (`Queue.Execute`). A refused
 and is retried. If a page change also needs other work first (the reference app rebuilds its Seo index), run both **in one job, in
 order**: two jobs can run in parallel, and a purge that wins the race lets Cloudflare re-cache the old page for a year.
 
+### Purge everything, or by URL?
+
+The command and the purger offer **purge everything** and **purge by URL**. Which to use is a trade-off, not a rule:
+
+| | Purge everything | Purge by URL |
+|---|---|---|
+| Correctness | cannot leave a stale page | a URL you forget stays stale for as long as the edge TTL (a year by default), silently |
+| Cost | the next request for every page goes to the origin | only the pages you named |
+| Cloudflare Free limit | **5 requests a minute** per account (burst of 25), shared with every zone on the account | 800 URLs a second, 100 URLs per request |
+
+Start with everything: it is never wrong, and a small site feels the cold cache only as a few slow first requests (static files
+come back from any CDN behind Cloudflare, not from PHP). Move to a narrower purge when the limit or the cold cache starts to hurt
+(heavy traffic, several sites on one Cloudflare account, several editors).
+
+Two things make a narrower purge harder than it looks:
+
+- **Query strings are part of the cache key.** `/list`, `/list?page=2` and `/list?category=x` are different cached objects, and
+  the set is open-ended, so exact URLs cannot cover a list page. Use a **prefix** purge for it, but prefix, hostname and tag purges
+  are in the same 5-a-minute bucket as purge everything; only exact URLs escape it.
+- **You must know every page that depends on the data that changed.** A test that fails when a page outside the purged area renders
+  that data keeps the assumption honest.
+
+Today the plugin purges everything (`edge_cache purge --all`) or exact URLs (`--url`). Prefix purge and purge by `Cache-Tag` are not
+built; tags also need every CDN behind Cloudflare to pass the header through, which nobody has tested. The reference app's choice and
+its reasons: `TheMusicDev/cakephp-tmd`, README (CDN / caching, "Purge strategy") and issue #49.
+
 ## Check the credentials
 
 ```

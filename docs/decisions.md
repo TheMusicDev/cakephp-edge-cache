@@ -16,3 +16,9 @@ Record of why the plugin looks the way it does (design discussion with the maint
 - **No per-path TTL table, no cache tags, no StackCDN driver (yet).** One TTL for all public routes. Cache tags (purge by tag is
   free on Cloudflare) need StackCDN to pass `Cache-Tag` through, which nobody has tested. StackCDN has no purge API for us.
 - **No `guard` or `queue` config keys.** The guard's behaviour follows `debug`; queuing is the host's business.
+- **Purge everything is the default we recommend; by URL is the optimisation (2026-10-06, from the reference app's first deploy).**
+  Purging too little is silent and lasts as long as the edge TTL (a year); purging too much is a few slow first requests. Cloudflare
+  Free: everything, hostname, tag and prefix share 5 requests a minute per account (burst 25); single URLs get 800 a second, so a
+  precise purge only escapes the limit when every URL can be listed, which a list page with `?page=`/filter variants cannot.
+  So the plugin ships `--all` and `--url`; **prefix purge is the likely next addition** (one request, covers query strings), tags only
+  after a CDN in the chain is shown to pass `Cache-Tag`. The README has the comparison; the reference app tracks its move in issue #49.
