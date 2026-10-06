@@ -119,13 +119,28 @@ account, a URL outside the zone (pass `--url`).
 
 ## One-time Cloudflare setup
 
-Cloudflare does not cache HTML unless a Cache Rule makes it eligible. Add one for the site, scoped to pages (the app decides what
-is cacheable through its headers; assets keep Cloudflare's defaults):
+Cloudflare does not cache HTML unless a Cache Rule makes it eligible. Add **one** rule for the site (dashboard: the zone, then
+Caching, then Cache Rules, then Create rule, "Cache Rules"). The app decides what is cacheable through its headers, so the rule is
+broad and assets keep Cloudflare's defaults:
 
-- When: `http.host eq "example.com" and http.request.uri.path.extension eq ""`
-- Then: **Eligible for cache**; **Edge TTL: Use cache-control header if present, bypass cache if not**.
+- **Name:** anything, for example `HTML pages: respect origin cache headers`.
+- **When** (Custom filter expression, "Edit expression"): `(http.host eq "example.com" and not http.request.uri.path contains ".")`,
+  every URL without a dot in its path, so pages but not files. (`http.request.uri.path.extension eq ""` looks equivalent but the
+  dashboard rejects the empty string as an "Invalid value".)
+- **Then:** **Eligible for cache**; **Edge TTL: Use cache-control header if present, bypass cache if not**; and
+  **Browser TTL: Respect origin TTL**.
 
-Check it with `curl -I https://example.com/about` twice: `cf-cache-status: HIT` on the second.
+**Do not skip the Browser TTL.** Without it Cloudflare rewrites the `Cache-Control` it sends to browsers on every page it caches:
+`private, no-cache` becomes `private, max-age=14400` (the zone's default 4-hour browser TTL), so a returning visitor keeps an old
+page for up to 4 hours after a change, and a purge cannot reach a browser. (Found on the reference app, 2026-10-06, by comparing the
+headers before and after the rule.)
+
+Check it with `curl -sI https://example.com/about` twice: the second answer has `cf-cache-status: HIT`, and `cache-control` is still
+`private, no-cache`. A form page, `/admin` and a 404 must stay `DYNAMIC` or `BYPASS`, never `HIT`.
+
+**Cloudflare's Email Address Obfuscation** (Security, Settings) rewrites email addresses in the HTML with a random key on every
+response. Because it changes the body, Cloudflare then drops the `ETag`, so browsers cannot get a cheap 304 and re-download the page.
+Edge caching is unaffected; turn the setting off if you want the 304s.
 
 ## Why two headers
 
