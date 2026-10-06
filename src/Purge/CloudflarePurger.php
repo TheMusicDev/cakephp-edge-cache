@@ -19,15 +19,16 @@ final class CloudflarePurger implements PurgerInterface
     /**
      * @param string $zoneId The zone ID.
      * @param string $token The API token.
+     * @param \Cake\Http\Client|null $client The HTTP client (a seam for tests).
      */
-    public function __construct(private string $zoneId, private string $token)
+    public function __construct(private string $zoneId, private string $token, ?Client $client = null)
     {
         if ($zoneId === '' || $token === '') {
             throw new RuntimeException(
                 'EdgeCache: the Cloudflare purge needs CLOUDFLARE_ZONE_ID and CLOUDFLARE_API_TOKEN.',
             );
         }
-        $this->client = new Client();
+        $this->client = $client ?? new Client();
     }
 
     /**

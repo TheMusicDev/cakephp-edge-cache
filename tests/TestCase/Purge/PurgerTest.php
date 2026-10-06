@@ -5,9 +5,11 @@ namespace TheMusicDev\EdgeCache\Test\TestCase\Purge;
 
 use Cake\Core\Configure;
 use Cake\Http\Client;
+use Cake\Http\Client\AdapterInterface;
 use Cake\Http\Client\Response;
 use Cake\TestSuite\TestCase;
 use InvalidArgumentException;
+use Psr\Http\Message\RequestInterface;
 use RuntimeException;
 use TheMusicDev\EdgeCache\EdgeCache;
 use TheMusicDev\EdgeCache\Purge\CloudflarePurger;
@@ -18,58 +20,70 @@ final class PurgerTest extends TestCase
     private const URL = 'https://api.cloudflare.com/client/v4/zones/zone123/purge_cache';
 
     /**
-     * @var list<array<string, mixed>>
+     * A client whose adapter records the requests it was asked to send and answers like Cloudflare.
+     *
+     * @param bool $ok Whether Cloudflare accepts the purge.
+     * @param list<\Psr\Http\Message\RequestInterface> $sent Filled with the requests.
+     * @return \Cake\Http\Client
      */
-    private array $bodies = [];
-
-    protected function tearDown(): void
+    private function client(bool $ok, array &$sent): Client
     {
-        Client::clearMockResponses();
-        parent::tearDown();
-    }
+        $adapter = new class ($ok, $sent) implements AdapterInterface {
+            /**
+             * @param bool $ok Whether to answer success.
+             * @param array<int, \Psr\Http\Message\RequestInterface> $sent Requests, by reference.
+             */
+            public function __construct(private bool $ok, private array &$sent)
+            {
+            }
 
-    private function mockCloudflare(bool $ok = true): void
-    {
-        $this->bodies = [];
-        $response = new Response(
-            ['HTTP/1.1 ' . ($ok ? '200 OK' : '403 Forbidden'), 'Content-Type: application/json'],
-            (string)json_encode(['success' => $ok]),
-        );
-        Client::addMockResponse('POST', self::URL, $response, ['match' => function ($request): bool {
-            $this->bodies[] = json_decode((string)$request->getBody(), true);
-            $this->assertSame('Bearer secret-token', $request->getHeaderLine('Authorization'));
+            /**
+             * @inheritDoc
+             */
+            public function send(RequestInterface $request, array $options): array
+            {
+                $this->sent[] = $request;
 
-            return true;
-        }]);
+                return [new Response(
+                    ['HTTP/1.1 ' . ($this->ok ? '200 OK' : '403 Forbidden'), 'Content-Type: application/json'],
+                    (string)json_encode(['success' => $this->ok]),
+                )];
+            }
+        };
+
+        return new Client(['adapter' => $adapter]);
     }
 
     public function testEverythingSendsPurgeEverything(): void
     {
-        $this->mockCloudflare();
+        $sent = [];
 
-        (new CloudflarePurger('zone123', 'secret-token'))->everything();
+        (new CloudflarePurger('zone123', 'secret-token', $this->client(true, $sent)))->everything();
 
-        $this->assertSame([['purge_everything' => true]], $this->bodies);
+        $this->assertCount(1, $sent);
+        $this->assertSame(self::URL, (string)$sent[0]->getUri());
+        $this->assertSame('Bearer secret-token', $sent[0]->getHeaderLine('Authorization'));
+        $this->assertSame(['purge_everything' => true], json_decode((string)$sent[0]->getBody(), true));
     }
 
     public function testUrlsAreSentInChunksOfOneHundred(): void
     {
-        $this->mockCloudflare();
+        $sent = [];
         $urls = array_map(fn(int $n): string => "https://example.test/p$n", range(1, 150));
 
-        (new CloudflarePurger('zone123', 'secret-token'))->urls($urls);
+        (new CloudflarePurger('zone123', 'secret-token', $this->client(true, $sent)))->urls($urls);
 
-        $this->assertCount(2, $this->bodies);
-        $this->assertCount(100, $this->bodies[0]['files']);
-        $this->assertCount(50, $this->bodies[1]['files']);
+        $this->assertCount(2, $sent);
+        $this->assertCount(100, json_decode((string)$sent[0]->getBody(), true)['files']);
+        $this->assertCount(50, json_decode((string)$sent[1]->getBody(), true)['files']);
     }
 
     public function testARefusedPurgeThrowsWithoutTheToken(): void
     {
-        $this->mockCloudflare(false);
+        $sent = [];
 
         try {
-            (new CloudflarePurger('zone123', 'secret-token'))->everything();
+            (new CloudflarePurger('zone123', 'secret-token', $this->client(false, $sent)))->everything();
             $this->fail('Expected a RuntimeException.');
         } catch (RuntimeException $e) {
             $this->assertStringContainsString('403', $e->getMessage());
